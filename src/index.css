@@ -342,3 +342,51 @@ body::before {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---- Waveform bar animation ---- */
+@keyframes waveform-idle {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+/* ---- Score reveal animation ---- */
+@keyframes score-reveal {
+  0% { opacity: 0; transform: scale(0.4) translateY(20px); filter: blur(8px); }
+  60% { opacity: 1; transform: scale(1.15) translateY(-4px); filter: blur(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+}
+
+/* ---- Peak flash ---- */
+@keyframes peak-flash {
+  0% { opacity: 1; box-shadow: 0 0 20px #ff00ff, 0 0 40px #ff00ff; }
+  100% { opacity: 0; box-shadow: none; }
+}
+
+/* ---- Trivia answer reveal ---- */
+@keyframes answer-correct {
+  0% { background: transparent; }
+  30% { background: rgba(0, 255, 65, 0.3); }
+  100% { background: rgba(0, 255, 65, 0.1); }
+}
+
+@keyframes answer-wrong {
+  0% { background: transparent; }
+  30% { background: rgba(255, 51, 102, 0.3); }
+  100% { background: rgba(255, 51, 102, 0.05); }
+}
+
+/* ---- Volume meter fill ---- */
+@keyframes vol-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+/* ---- Neon red button ---- */
+.neon-btn.red {
+  border-color: #ff3366;
+  color: #ff3366;
+}
+.neon-btn.red:hover {
+  background: rgba(255, 51, 102, 0.1);
+  box-shadow: 0 0 5px #ff3366, 0 0 10px #ff3366, 0 0 20px #ff3366;
+}

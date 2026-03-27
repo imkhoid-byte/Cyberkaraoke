@@ -1,75 +1,130 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import Header from './components/Header';
-import ApiKeySetup from './components/ApiKeySetup';
 import SingerManager from './components/SingerManager';
-import SearchPanel from './components/SearchPanel';
-import VideoPlayer from './components/VideoPlayer';
-import Queue from './components/Queue';
+import SongEntry from './components/SongEntry';
+import PerformanceAnalyzer from './components/PerformanceAnalyzer';
+import TriviaPanel from './components/TriviaPanel';
 import RatingModal from './components/RatingModal';
 import Leaderboard from './components/Leaderboard';
 import WinnerScreen from './components/WinnerScreen';
-import { useQueue } from './hooks/useQueue';
+import { useMicrophone } from './hooks/useMicrophone';
+import { useTrivia } from './hooks/useTrivia';
 import { SINGER_COLORS } from './constants';
 
 let singerIdCounter = 0;
 const genSingerId = () => `singer-${++singerIdCounter}`;
 
 export default function App() {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem('yt_api_key') || '');
   const [singers, setSingers] = useState([]);
   const [scores, setScores] = useState({});
+  const [currentSinger, setCurrentSinger] = useState(null);
+  const [currentArtist, setCurrentArtist] = useState('');
+  const [currentSong, setCurrentSong] = useState('');
+  const [phase, setPhase] = useState('idle'); // 'idle' | 'performing' | 'rating' | 'winner'
+  const [vocalScore, setVocalScore] = useState(null);
+  const [triviaBonus, setTriviaBonus] = useState(0);
   const [sessionActive, setSessionActive] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [showRating, setShowRating] = useState(false);
-  const [showWinner, setShowWinner] = useState(false);
-  const [lastSongSinger, setLastSongSinger] = useState(null);
-  const [lastSongTitle, setLastSongTitle] = useState('');
-  const [selectedSinger, setSelectedSinger] = useState(null);
+  const [elapsedTimer, setElapsedTimer] = useState(0);
+  const timerRef = useRef(null);
+  const timerStartRef = useRef(null);
 
-  const {
-    queue,
-    currentSong,
-    setCurrentSong,
-    addToQueue,
-    removeFromQueue,
-    reorderQueue,
-    nextSong,
-    skipCurrent,
-    randomSong,
-    clearQueue,
-  } = useQueue();
+  const mic = useMicrophone();
+  const trivia = useTrivia();
 
-  // User clicked LAUNCH — video opened in YouTube, mark as playing
-  const handleLaunch = useCallback(() => {
-    setIsPlaying(true);
+  const startTimer = () => {
+    timerStartRef.current = Date.now();
+    setElapsedTimer(0);
+    timerRef.current = setInterval(() => {
+      setElapsedTimer(Math.floor((Date.now() - timerStartRef.current) / 1000));
+    }, 500);
+  };
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const handleStartPerformance = useCallback(async (singer, artist, song) => {
+    setCurrentSinger(singer);
+    setCurrentArtist(artist);
+    setCurrentSong(song);
+    setVocalScore(null);
+    setTriviaBonus(0);
+    setPhase('performing');
     setSessionActive(true);
-  }, []);
 
-  // User clicked DONE SINGING — show rating modal
-  const handleDoneSinging = useCallback(() => {
-    setIsPlaying(false);
-    if (currentSong) {
-      setLastSongSinger(currentSong.singer);
-      setLastSongTitle(currentSong.title);
-    }
-    setShowRating(true);
-  }, [currentSong]);
+    // Start mic
+    await mic.start();
 
-  const handleRatingSubmit = useCallback((score) => {
-    if (lastSongSinger) {
-      setScores((prev) => ({
+    // Fetch trivia
+    trivia.fetchTrivia(artist);
+
+    startTimer();
+  }, [mic, trivia]);
+
+  const handleSongOver = useCallback(() => {
+    stopTimer();
+    const result = mic.stop();
+    const score = result?.score ?? mic.vocalScore ?? 0;
+    setVocalScore(score);
+
+    // Trivia bonus: 5 pts per correct answer
+    const bonus = trivia.questions.filter((q) => q.wasCorrect).length * 5;
+    setTriviaBonus(bonus);
+
+    setPhase('rating');
+  }, [mic, trivia.questions]);
+
+  const handleSubmitRating = useCallback((audienceRating) => {
+    if (!currentSinger) return;
+
+    const vocal = vocalScore ?? 0;
+    const finalScore = Math.round(vocal * 0.4 + audienceRating * 10 * 0.4 + triviaBonus * 0.2);
+
+    setScores((prev) => {
+      const existing = prev[currentSinger.id] || { total: 0, songs: 0 };
+      return {
         ...prev,
-        [lastSongSinger.id]: (prev[lastSongSinger.id] || 0) + score,
-      }));
-    }
-    setShowRating(false);
-    nextSong();
-  }, [lastSongSinger, nextSong]);
+        [currentSinger.id]: {
+          total: existing.total + finalScore,
+          songs: existing.songs + 1,
+          vocalAvg: Math.round(((existing.vocalAvg || 0) * existing.songs + vocal) / (existing.songs + 1)),
+          triviaBonus: (existing.triviaBonus || 0) + triviaBonus,
+        },
+      };
+    });
 
-  const handleRatingSkip = useCallback(() => {
-    setShowRating(false);
-    nextSong();
-  }, [nextSong]);
+    // Reset for next song
+    setPhase('idle');
+    setCurrentSinger(null);
+    setCurrentArtist('');
+    setCurrentSong('');
+    setVocalScore(null);
+    setTriviaBonus(0);
+    trivia.resetTrivia();
+  }, [currentSinger, vocalScore, triviaBonus, trivia]);
+
+  const handleEndSession = useCallback(() => {
+    stopTimer();
+    if (mic.isListening) mic.stop();
+    setPhase('winner');
+  }, [mic]);
+
+  const handleNewSession = useCallback(() => {
+    stopTimer();
+    setSingers([]);
+    setScores({});
+    setCurrentSinger(null);
+    setCurrentArtist('');
+    setCurrentSong('');
+    setPhase('idle');
+    setVocalScore(null);
+    setTriviaBonus(0);
+    setSessionActive(false);
+    trivia.resetTrivia();
+  }, [trivia]);
 
   const handleAddSinger = useCallback((name) => {
     const id = genSingerId();
@@ -81,41 +136,21 @@ export default function App() {
     setSingers((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
-  const handleAddToQueue = useCallback((video) => {
-    addToQueue(video, selectedSinger || (singers[0] || null));
-  }, [addToQueue, selectedSinger, singers]);
+  const handleRandomSinger = useCallback(() => {
+    if (singers.length === 0) return;
+    const randomSinger = singers[Math.floor(Math.random() * singers.length)];
+    // Just highlight it — user still needs to enter song
+    alert(`Random pick: ${randomSinger.name}!`);
+  }, [singers]);
 
-  const handleRandomSong = useCallback(() => {
-    randomSong(singers);
-  }, [randomSong, singers]);
+  const handleTriviaAnswer = useCallback((answer) => {
+    trivia.answerQuestion(answer);
+  }, [trivia]);
 
-  const handleSkip = useCallback(() => {
-    setIsPlaying(false);
-    skipCurrent();
-  }, [skipCurrent]);
+  const handleTriviaNext = useCallback(() => {
+    trivia.nextQuestion();
+  }, [trivia]);
 
-  const handleEndSession = useCallback(() => {
-    setIsPlaying(false);
-    setSessionActive(false);
-    setShowWinner(true);
-  }, []);
-
-  const handleNewSession = useCallback(() => {
-    setSingers([]);
-    setScores({});
-    clearQueue();
-    setCurrentSong(null);
-    setSessionActive(false);
-    setIsPlaying(false);
-    setShowWinner(false);
-    setShowRating(false);
-    setLastSongSinger(null);
-  }, [clearQueue, setCurrentSong]);
-
-  const handleSaveApiKey = useCallback((key) => {
-    localStorage.setItem('yt_api_key', key);
-    setApiKey(key);
-  }, []);
 
   return (
     <div style={{
@@ -128,24 +163,21 @@ export default function App() {
     }}>
       <Header sessionActive={sessionActive} onEndSession={handleEndSession} />
 
-      {!apiKey && (
-        <ApiKeySetup onSave={handleSaveApiKey} />
-      )}
-
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '280px 1fr 320px',
+        gridTemplateColumns: '280px 1fr 300px',
         gap: '8px',
         padding: '8px',
         overflow: 'hidden',
         minHeight: 0,
       }}>
         {/* Left Column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden', minHeight: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'auto', minHeight: 0 }}>
           <Leaderboard
             singers={singers}
             scores={scores}
+            onEndNight={handleEndSession}
             onEndSession={handleEndSession}
             sessionActive={sessionActive}
           />
@@ -153,19 +185,30 @@ export default function App() {
             singers={singers}
             onAdd={handleAddSinger}
             onRemove={handleRemoveSinger}
-            selectedSinger={selectedSinger}
-            onSelectSinger={setSelectedSinger}
+            selectedSinger={currentSinger}
+            onSelectSinger={() => {}}
           />
         </div>
 
         {/* Center Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden', minHeight: 0 }}>
-          <VideoPlayer
+          <SongEntry
+            singers={singers}
+            currentSinger={currentSinger}
+            onStart={handleStartPerformance}
+            phase={phase}
+          />
+
+          <PerformanceAnalyzer
+            phase={phase}
+            isListening={mic.isListening}
+            currentVolume={mic.currentVolume}
+            peakVolume={mic.peakVolume}
+            vocalScore={mic.vocalScore ?? vocalScore}
+            analyserRef={mic.analyserRef}
+            currentSinger={currentSinger}
+            currentArtist={currentArtist}
             currentSong={currentSong}
-            isPlaying={isPlaying}
-            onLaunch={handleLaunch}
-            onDoneSinging={handleDoneSinging}
-            onSkip={handleSkip}
           />
 
           {/* Controls bar */}
@@ -176,80 +219,97 @@ export default function App() {
             gap: '10px',
             flexShrink: 0,
           }}>
-            <button className="neon-btn green" onClick={handleRandomSong} title="Add random karaoke classic to queue">
-              ⚡ RANDOM
-            </button>
-            <button
-              className="neon-btn orange"
-              onClick={handleSkip}
-              disabled={!currentSong}
-              style={{ opacity: currentSong ? 1 : 0.4 }}
-            >
-              ⏭ SKIP
-            </button>
-            {currentSong && !isPlaying && (
+            {phase === 'idle' && (
               <button
                 className="neon-btn green"
-                onClick={handleLaunch}
-                style={{ fontSize: '12px' }}
+                onClick={handleRandomSinger}
+                disabled={singers.length === 0}
+                style={{ opacity: singers.length === 0 ? 0.4 : 1 }}
               >
-                ▶ LAUNCH
+                ⚡ RANDOM SINGER
               </button>
             )}
-            {currentSong && isPlaying && (
-              <button
-                className="neon-btn magenta"
-                onClick={handleDoneSinging}
-              >
-                ✓ DONE SINGING
-              </button>
+
+            {phase === 'performing' && (
+              <>
+                <button
+                  className="neon-btn"
+                  onClick={handleSongOver}
+                  style={{
+                    borderColor: '#ff3366',
+                    color: '#ff3366',
+                    fontSize: '14px',
+                    padding: '10px 24px',
+                    letterSpacing: '2px',
+                    animation: 'neon-pulse 2s infinite',
+                  }}
+                >
+                  ■ SONG OVER
+                </button>
+                <div style={{
+                  fontFamily: 'var(--font-heading)',
+                  fontSize: '13px',
+                  color: 'var(--neon-green)',
+                  textShadow: 'var(--glow-green)',
+                }}>
+                  {String(Math.floor(elapsedTimer / 60)).padStart(2, '0')}:{String(elapsedTimer % 60).padStart(2, '0')}
+                </div>
+              </>
             )}
+
             <div style={{ flex: 1 }} />
+
+            {mic.error && (
+              <div style={{
+                fontSize: '10px',
+                color: '#ff3366',
+                fontFamily: 'var(--font-mono)',
+              }}>
+                MIC: {mic.error}
+              </div>
+            )}
+
             <button
               className="neon-btn"
-              style={{ borderColor: '#ff3366', color: '#ff3366' }}
               onClick={handleEndSession}
+              style={{ borderColor: '#ff3366', color: '#ff3366', fontSize: '11px' }}
             >
-              ■ END SESSION
+              END NIGHT
             </button>
           </div>
         </div>
 
         {/* Right Column */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden', minHeight: 0 }}>
-          <SearchPanel
-            apiKey={apiKey}
-            singers={singers}
-            selectedSinger={selectedSinger}
-            onSelectSinger={setSelectedSinger}
-            onAddToQueue={handleAddToQueue}
-          />
-          <Queue
-            queue={queue}
-            currentSong={currentSong}
-            singers={singers}
-            selectedSinger={selectedSinger}
-            onSelectSinger={setSelectedSinger}
-            onRemove={removeFromQueue}
-            onReorder={reorderQueue}
-            onUpdateSinger={() => {}}
+        <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+          <TriviaPanel
+            questions={trivia.questions}
+            currentQ={trivia.currentQ}
+            loading={trivia.loading}
+            currentArtist={currentArtist}
+            onAnswer={handleTriviaAnswer}
+            onNext={handleTriviaNext}
+            triviaBonus={trivia.questions.filter((q) => q.wasCorrect).length * 5}
+            phase={phase}
           />
         </div>
       </div>
 
-      {showRating && (
+      {phase === 'rating' && currentSinger && (
         <RatingModal
-          singer={lastSongSinger}
-          songTitle={lastSongTitle}
-          onRate={handleRatingSubmit}
-          onSkip={handleRatingSkip}
+          singer={currentSinger}
+          songTitle={currentSong}
+          vocalScore={vocalScore}
+          triviaBonus={triviaBonus}
+          onSubmit={handleSubmitRating}
         />
       )}
 
-      {showWinner && (
+      {phase === 'winner' && (
         <WinnerScreen
           singers={singers}
-          scores={scores}
+          scores={Object.fromEntries(
+            Object.entries(scores).map(([id, s]) => [id, s.total || 0])
+          )}
           onNewSession={handleNewSession}
         />
       )}
