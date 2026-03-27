@@ -25,6 +25,7 @@ export default function App() {
   const [lastSongSinger, setLastSongSinger] = useState(null);
   const [lastSongTitle, setLastSongTitle] = useState('');
   const [selectedSinger, setSelectedSinger] = useState(null);
+  const [videoError, setVideoError] = useState('');
 
   const {
     queue,
@@ -50,11 +51,19 @@ export default function App() {
 
   const handleVideoStart = useCallback(() => {
     setSessionActive(true);
+    setVideoError('');
   }, []);
+
+  const handleVideoError = useCallback(() => {
+    setVideoError(`"${currentSong?.title || 'This video'}" can't be embedded. Skipping...`);
+    setTimeout(() => setVideoError(''), 4000);
+    skipCurrent();
+  }, [currentSong, skipCurrent]);
 
   const { play, pause, resume, stop, isReady, isPlaying } = useYouTubePlayer({
     onVideoEnd: handleVideoEnd,
     onVideoStart: handleVideoStart,
+    onVideoError: handleVideoError,
   });
 
   // Play current song whenever it changes
@@ -195,6 +204,7 @@ export default function App() {
           <VideoPlayer
             currentSong={currentSong}
             isPlaying={isPlaying}
+            videoError={videoError}
           />
           {/* Player Controls */}
           <div className="cyber-panel" style={{

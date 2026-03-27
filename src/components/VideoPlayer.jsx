@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function VideoPlayer({ currentSong, isPlaying }) {
+export default function VideoPlayer({ currentSong, isPlaying, videoError }) {
   return (
     <div style={{
       flex: 1,
@@ -88,6 +88,28 @@ export default function VideoPlayer({ currentSong, isPlaying }) {
           }}>
             Search for songs and add them to the queue to begin
           </div>
+        </div>
+      )}
+
+      {/* Error toast */}
+      {videoError && (
+        <div style={{
+          position: 'absolute',
+          top: '12px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10,
+          background: 'rgba(255,60,60,0.15)',
+          border: '1px solid rgba(255,60,60,0.6)',
+          color: '#ff6060',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '11px',
+          padding: '8px 16px',
+          whiteSpace: 'nowrap',
+          boxShadow: '0 0 16px rgba(255,60,60,0.3)',
+          backdropFilter: 'blur(4px)',
+        }}>
+          ⚠ {videoError}
         </div>
       )}
 

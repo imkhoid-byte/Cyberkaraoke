@@ -27,6 +27,8 @@ export default function SearchPanel({ apiKey, singers, selectedSinger, onSelectS
       url.searchParams.set('part', 'snippet');
       url.searchParams.set('q', searchQuery);
       url.searchParams.set('type', 'video');
+      url.searchParams.set('videoEmbeddable', 'true');
+      url.searchParams.set('videoSyndicated', 'true');
       url.searchParams.set('maxResults', '10');
       url.searchParams.set('key', apiKey);
 
