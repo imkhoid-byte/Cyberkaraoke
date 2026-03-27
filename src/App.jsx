@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import Header from './components/Header';
 import ApiKeySetup from './components/ApiKeySetup';
 import SingerManager from './components/SingerManager';
@@ -8,7 +8,6 @@ import Queue from './components/Queue';
 import RatingModal from './components/RatingModal';
 import Leaderboard from './components/Leaderboard';
 import WinnerScreen from './components/WinnerScreen';
-import { useYouTubePlayer } from './hooks/useYouTubePlayer';
 import { useQueue } from './hooks/useQueue';
 import { SINGER_COLORS } from './constants';
 
@@ -20,12 +19,12 @@ export default function App() {
   const [singers, setSingers] = useState([]);
   const [scores, setScores] = useState({});
   const [sessionActive, setSessionActive] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const [showRating, setShowRating] = useState(false);
   const [showWinner, setShowWinner] = useState(false);
   const [lastSongSinger, setLastSongSinger] = useState(null);
   const [lastSongTitle, setLastSongTitle] = useState('');
   const [selectedSinger, setSelectedSinger] = useState(null);
-  const [videoError, setVideoError] = useState('');
 
   const {
     queue,
@@ -37,41 +36,24 @@ export default function App() {
     nextSong,
     skipCurrent,
     randomSong,
-    resolveRandomSong,
     clearQueue,
   } = useQueue();
 
-  const handleVideoEnd = useCallback(() => {
+  // User clicked LAUNCH — video opened in YouTube, mark as playing
+  const handleLaunch = useCallback(() => {
+    setIsPlaying(true);
+    setSessionActive(true);
+  }, []);
+
+  // User clicked DONE SINGING — show rating modal
+  const handleDoneSinging = useCallback(() => {
+    setIsPlaying(false);
     if (currentSong) {
       setLastSongSinger(currentSong.singer);
       setLastSongTitle(currentSong.title);
-      setShowRating(true);
     }
+    setShowRating(true);
   }, [currentSong]);
-
-  const handleVideoStart = useCallback(() => {
-    setSessionActive(true);
-    setVideoError('');
-  }, []);
-
-  const handleVideoError = useCallback(() => {
-    setVideoError(`"${currentSong?.title || 'This video'}" can't be embedded. Skipping...`);
-    setTimeout(() => setVideoError(''), 4000);
-    skipCurrent();
-  }, [currentSong, skipCurrent]);
-
-  const { play, pause, resume, stop, isReady, isPlaying } = useYouTubePlayer({
-    onVideoEnd: handleVideoEnd,
-    onVideoStart: handleVideoStart,
-    onVideoError: handleVideoError,
-  });
-
-  // Play current song whenever it changes
-  useEffect(() => {
-    if (currentSong && currentSong.videoId && isReady) {
-      play(currentSong.videoId);
-    }
-  }, [currentSong, isReady, play]);
 
   const handleRatingSubmit = useCallback((score) => {
     if (lastSongSinger) {
@@ -81,7 +63,6 @@ export default function App() {
       }));
     }
     setShowRating(false);
-    // Advance to next song
     nextSong();
   }, [lastSongSinger, nextSong]);
 
@@ -109,37 +90,27 @@ export default function App() {
   }, [randomSong, singers]);
 
   const handleSkip = useCallback(() => {
-    if (currentSong) {
-      setLastSongSinger(currentSong.singer);
-      setLastSongTitle(currentSong.title);
-      stop();
-    }
+    setIsPlaying(false);
     skipCurrent();
-  }, [currentSong, stop, skipCurrent]);
-
-  const handlePlayNext = useCallback(() => {
-    if (queue.length > 0) {
-      nextSong();
-    }
-  }, [queue, nextSong]);
+  }, [skipCurrent]);
 
   const handleEndSession = useCallback(() => {
-    stop();
+    setIsPlaying(false);
     setSessionActive(false);
     setShowWinner(true);
-  }, [stop]);
+  }, []);
 
   const handleNewSession = useCallback(() => {
-    stop();
     setSingers([]);
     setScores({});
     clearQueue();
     setCurrentSong(null);
     setSessionActive(false);
+    setIsPlaying(false);
     setShowWinner(false);
     setShowRating(false);
     setLastSongSinger(null);
-  }, [stop, clearQueue, setCurrentSong]);
+  }, [clearQueue, setCurrentSong]);
 
   const handleSaveApiKey = useCallback((key) => {
     localStorage.setItem('yt_api_key', key);
@@ -171,13 +142,7 @@ export default function App() {
         minHeight: 0,
       }}>
         {/* Left Column */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          overflow: 'hidden',
-          minHeight: 0,
-        }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden', minHeight: 0 }}>
           <Leaderboard
             singers={singers}
             scores={scores}
@@ -194,19 +159,16 @@ export default function App() {
         </div>
 
         {/* Center Column */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          overflow: 'hidden',
-          minHeight: 0,
-        }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden', minHeight: 0 }}>
           <VideoPlayer
             currentSong={currentSong}
             isPlaying={isPlaying}
-            videoError={videoError}
+            onLaunch={handleLaunch}
+            onDoneSinging={handleDoneSinging}
+            onSkip={handleSkip}
           />
-          {/* Player Controls */}
+
+          {/* Controls bar */}
           <div className="cyber-panel" style={{
             padding: '10px 14px',
             display: 'flex',
@@ -214,20 +176,8 @@ export default function App() {
             gap: '10px',
             flexShrink: 0,
           }}>
-            <button
-              className="neon-btn green"
-              onClick={handleRandomSong}
-              title="Add random karaoke classic to queue"
-            >
+            <button className="neon-btn green" onClick={handleRandomSong} title="Add random karaoke classic to queue">
               ⚡ RANDOM
-            </button>
-            <button
-              className="neon-btn"
-              onClick={isPlaying ? pause : resume}
-              disabled={!currentSong}
-              style={{ opacity: currentSong ? 1 : 0.4 }}
-            >
-              {isPlaying ? '⏸ PAUSE' : '▶ RESUME'}
             </button>
             <button
               className="neon-btn orange"
@@ -237,21 +187,27 @@ export default function App() {
             >
               ⏭ SKIP
             </button>
-            {!currentSong && queue.length > 0 && (
+            {currentSong && !isPlaying && (
+              <button
+                className="neon-btn green"
+                onClick={handleLaunch}
+                style={{ fontSize: '12px' }}
+              >
+                ▶ LAUNCH
+              </button>
+            )}
+            {currentSong && isPlaying && (
               <button
                 className="neon-btn magenta"
-                onClick={handlePlayNext}
+                onClick={handleDoneSinging}
               >
-                ▶ PLAY NEXT
+                ✓ DONE SINGING
               </button>
             )}
             <div style={{ flex: 1 }} />
             <button
               className="neon-btn"
-              style={{
-                borderColor: '#ff3366',
-                color: '#ff3366',
-              }}
+              style={{ borderColor: '#ff3366', color: '#ff3366' }}
               onClick={handleEndSession}
             >
               ■ END SESSION
@@ -260,13 +216,7 @@ export default function App() {
         </div>
 
         {/* Right Column */}
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          overflow: 'hidden',
-          minHeight: 0,
-        }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden', minHeight: 0 }}>
           <SearchPanel
             apiKey={apiKey}
             singers={singers}
@@ -282,10 +232,7 @@ export default function App() {
             onSelectSinger={setSelectedSinger}
             onRemove={removeFromQueue}
             onReorder={reorderQueue}
-            onUpdateSinger={(itemId, singer) => {
-              // Handled inline via queue state mutation helper
-              // We'll pass this down
-            }}
+            onUpdateSinger={() => {}}
           />
         </div>
       </div>
