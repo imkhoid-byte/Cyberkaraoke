@@ -26,13 +26,12 @@ function loadYouTubeAPI() {
   });
 }
 
-export function useYouTubePlayer({ onVideoEnd, onVideoStart, onVideoError }) {
+export function useYouTubePlayer({ onVideoEnd, onVideoStart }) {
   const playerRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const onVideoEndRef = useRef(onVideoEnd);
   const onVideoStartRef = useRef(onVideoStart);
-  const onVideoErrorRef = useRef(onVideoError);
 
   useEffect(() => {
     onVideoEndRef.current = onVideoEnd;
@@ -41,10 +40,6 @@ export function useYouTubePlayer({ onVideoEnd, onVideoStart, onVideoError }) {
   useEffect(() => {
     onVideoStartRef.current = onVideoStart;
   }, [onVideoStart]);
-
-  useEffect(() => {
-    onVideoErrorRef.current = onVideoError;
-  }, [onVideoError]);
 
   useEffect(() => {
     let mounted = true;
@@ -69,12 +64,6 @@ export function useYouTubePlayer({ onVideoEnd, onVideoStart, onVideoError }) {
         events: {
           onReady: () => {
             if (mounted) setIsReady(true);
-          },
-          onError: () => {
-            if (mounted) {
-              setIsPlaying(false);
-              onVideoErrorRef.current?.();
-            }
           },
           onStateChange: (event) => {
             const YTState = window.YT.PlayerState;
